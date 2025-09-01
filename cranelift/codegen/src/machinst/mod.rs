@@ -59,6 +59,7 @@ use cranelift_control::ControlPlane;
 use cranelift_entity::PrimaryMap;
 use regalloc2::VReg;
 use smallvec::{SmallVec, smallvec};
+use std::boxed::Box;
 use std::string::String;
 
 #[cfg(feature = "enable-serde")]
@@ -331,7 +332,7 @@ pub trait MachInstEmitState<I: VCodeInst>: Default + Clone + Debug {
 #[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
 pub struct CompiledCodeBase<T: CompilePhase> {
     /// Machine code.
-    pub buffer: MachBufferFinalized<T>,
+    pub buffer: Box<MachBufferFinalized<T>>,
     /// Size of stack frame, in bytes.
     pub frame_size: u32,
     /// Disassembly, if requested.
@@ -359,8 +360,9 @@ pub struct CompiledCodeBase<T: CompilePhase> {
 impl CompiledCodeStencil {
     /// Apply function parameters to finalize a stencil into its final form.
     pub fn apply_params(self, params: &FunctionParameters) -> CompiledCode {
+        let buffer = *self.buffer;
         CompiledCode {
-            buffer: self.buffer.apply_base_srcloc(params.base_srcloc()),
+            buffer: Box::new(buffer.apply_base_srcloc(params.base_srcloc())),
             frame_size: self.frame_size,
             vcode: self.vcode,
             value_labels_ranges: self.value_labels_ranges,

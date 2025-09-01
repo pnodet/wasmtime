@@ -1267,7 +1267,7 @@ impl FunctionCompiler<'_> {
 
         let alignment = compiled_code.buffer.alignment.max(preferred_alignment);
         let mut compiled_function = CompiledFunction::new(
-            compiled_code.buffer.clone(),
+            (*compiled_code.buffer).clone(),
             context.func.params.user_named_funcs().clone(),
             alignment,
         );

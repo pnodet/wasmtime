@@ -35,6 +35,7 @@ use core::cmp::Ordering;
 use core::fmt::{self, Write};
 use core::mem::take;
 use cranelift_entity::{Keys, entity_impl};
+use std::boxed::Box;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 
@@ -205,7 +206,7 @@ pub struct VCode<I: VCodeInst> {
 /// and optionally metadata about the code layout.
 pub struct EmitResult {
     /// The MachBuffer containing the machine code.
-    pub buffer: MachBufferFinalized<Stencil>,
+    pub buffer: Box<MachBufferFinalized<Stencil>>,
 
     /// Offset of each basic block, recorded during emission. Computed
     /// only if `machine_code_cfg_info` is enabled.

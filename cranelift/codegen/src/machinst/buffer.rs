@@ -184,6 +184,7 @@ use core::ops::Range;
 use cranelift_control::ControlPlane;
 use cranelift_entity::{PrimaryMap, entity_impl};
 use smallvec::SmallVec;
+use std::boxed::Box;
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 use std::mem;
@@ -1493,7 +1494,7 @@ impl<I: VCodeInst> MachBuffer<I> {
         mut self,
         constants: &VCodeConstants,
         ctrl_plane: &mut ControlPlane,
-    ) -> MachBufferFinalized<Stencil> {
+    ) -> Box<MachBufferFinalized<Stencil>> {
         let _tt = timing::vcode_emit_finish();
 
         self.finish_emission_maybe_forcing_veneers(ForceVeneers::No, ctrl_plane);
@@ -1528,7 +1529,7 @@ impl<I: VCodeInst> MachBuffer<I> {
         let mut srclocs = self.srclocs;
         srclocs.sort_by_key(|entry| entry.start);
 
-        MachBufferFinalized {
+        Box::new(MachBufferFinalized {
             data: self.data,
             relocs: finalized_relocs,
             traps: self.traps,
@@ -1538,7 +1539,7 @@ impl<I: VCodeInst> MachBuffer<I> {
             user_stack_maps: self.user_stack_maps,
             unwind_info: self.unwind_info,
             alignment,
-        }
+        })
     }
 
     /// Add an external relocation at the given offset.
