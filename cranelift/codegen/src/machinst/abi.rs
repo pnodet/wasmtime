@@ -1308,10 +1308,16 @@ impl<M: ABIMachineSpec> Callee<M> {
             call_conv,
             flags,
             isa_flags: isa_flags.clone(),
-            is_leaf: f.is_leaf(),
+            is_leaf: false, // Will be updated during VCode generation via set_is_leaf
             stack_limit,
             _mach: PhantomData,
         })
+    }
+
+    /// Update the is_leaf flag based on VCode analysis.
+    /// This should be called after VCode generation to get accurate leaf detection.
+    pub fn set_is_leaf(&mut self, is_leaf: bool) {
+        self.is_leaf = is_leaf;
     }
 
     /// Inserts instructions necessary for checking the stack limit into the

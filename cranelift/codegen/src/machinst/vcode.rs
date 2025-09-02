@@ -673,8 +673,9 @@ impl<I: VCodeInst> VCode<I> {
         self.insts.len()
     }
 
-    fn compute_clobbers(&self, regalloc: &regalloc2::Output) -> Vec<Writable<RealReg>> {
+    fn compute_clobbers(&mut self, regalloc: &regalloc2::Output) -> Vec<Writable<RealReg>> {
         let mut clobbered = PRegSet::default();
+        let mut has_calls = false;
 
         // All moves are included in clobbers.
         for (_, Edit::Move { to, .. }) in &regalloc.edits {
@@ -692,6 +693,10 @@ impl<I: VCodeInst> VCode<I> {
                         clobbered.add(preg);
                     }
                 }
+            }
+
+            if self.insts[i].is_call() {
+                has_calls = true;
             }
 
             // Also add explicitly-clobbered registers.
@@ -719,6 +724,8 @@ impl<I: VCodeInst> VCode<I> {
                 }
             }
         }
+
+        self.abi.set_is_leaf(!has_calls);
 
         clobbered
             .into_iter()
