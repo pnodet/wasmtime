@@ -438,6 +438,17 @@ where
         }
     }
 
+    fn is_call(&self) -> bool {
+        match self.inst {
+            Inst::Call { .. }
+            | Inst::IndirectCall { .. }
+            | Inst::IndirectCallHost { .. }
+            | Inst::ReturnCall { .. }
+            | Inst::ReturnIndirectCall { .. } => true,
+            _ => false,
+        }
+    }
+
     fn get_operands(&mut self, collector: &mut impl OperandVisitor) {
         pulley_get_operands(self, collector);
     }

@@ -1080,6 +1080,18 @@ impl MachInst for Inst {
         }
     }
 
+    fn is_call(&self) -> bool {
+        match self {
+            Inst::Call { .. }
+            | Inst::CallInd { .. }
+            | Inst::ReturnCall { .. }
+            | Inst::ReturnCallInd { .. }
+            | Inst::ElfTlsGetAddr { .. }
+            | Inst::MachOTlsGetAddr { .. } => true,
+            _ => false,
+        }
+    }
+
     fn gen_dummy_use(reg: Reg) -> Inst {
         Inst::DummyUse { reg }
     }
