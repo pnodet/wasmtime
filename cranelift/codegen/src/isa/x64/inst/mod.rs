@@ -1281,6 +1281,19 @@ impl MachInst for Inst {
         }
     }
 
+    fn is_call(&self) -> bool {
+        match self {
+            Inst::CallKnown { .. }
+            | Inst::CallUnknown { .. }
+            | Inst::ReturnCallKnown { .. }
+            | Inst::ReturnCallUnknown { .. }
+            | Inst::ElfTlsGetAddr { .. }
+            | Inst::MachOTlsGetAddr { .. }
+            | Inst::CoffTlsGetAddr { .. } => true,
+            _ => false,
+        }
+    }
+
     fn is_term(&self) -> MachTerminator {
         match self {
             // Interesting cases.
