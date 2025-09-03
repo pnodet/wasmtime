@@ -1,0 +1,67 @@
+test optimize
+    set opt_level=none
+    set preserve_frame_pointers=true
+    set enable_multi_ret_implicit_sret=true
+    target aarch64
+
+; Test f32 bitwise operations
+function %test_f32_bxor(f32, f32) -> f32 fast {
+block0(v0: f32, v1: f32):
+    v2 = bxor.f32 v0, v1
+    return v2
+}
+
+function %test_f32_band(f32, f32) -> f32 fast {
+block0(v0: f32, v1: f32):
+    v2 = band.f32 v0, v1
+    return v2
+}
+
+function %test_f32_bor(f32, f32) -> f32 fast {
+block0(v0: f32, v1: f32):
+    v2 = bor.f32 v0, v1
+    return v2
+}
+
+function %test_f32_bnot(f32) -> f32 fast {
+block0(v0: f32):
+    v1 = bnot.f32 v0
+    return v1
+}
+
+; Test f64 bitwise operations
+function %test_f64_bxor(f64, f64) -> f64 fast {
+block0(v0: f64, v1: f64):
+    v2 = bxor.f64 v0, v1
+    return v2
+}
+
+function %test_f64_band(f64, f64) -> f64 fast {
+block0(v0: f64, v1: f64):
+    v2 = band.f64 v0, v1
+    return v2
+}
+
+function %test_f64_bor(f64, f64) -> f64 fast {
+block0(v0: f64, v1: f64):
+    v2 = bor.f64 v0, v1
+    return v2
+}
+
+function %test_f64_bnot(f64) -> f64 fast {
+block0(v0: f64):
+    v1 = bnot.f64 v0
+    return v1
+}
+
+; Test with constants to exercise the full pipeline
+function %test_with_constants() -> f64 fast {
+block0:
+    v1 = f64const 0x1.000p0
+    v2 = f64const 0x1.000p1
+    v3 = bxor.f64 v1, v2
+    v4 = band.f64 v1, v2
+    v5 = bor.f64 v3, v4
+    v6 = bnot.f64 v5
+    return v6
+}

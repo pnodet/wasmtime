@@ -1,0 +1,15 @@
+test optimize
+    set opt_level=none
+    set preserve_frame_pointers=true
+    set enable_multi_ret_implicit_sret=true
+    target aarch64
+
+function %main() -> f64 fast {
+
+block0:
+    v1 = f64const 0x1.11044b092d153p-1
+    v2 = bxor.f64 v1, v1
+    return v2
+}
+
+; print: %main()
