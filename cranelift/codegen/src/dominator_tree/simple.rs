@@ -12,16 +12,11 @@ use crate::traversals::Dfs;
 use alloc::vec::Vec;
 use core::cmp::Ordering;
 
-/// RPO numbers are not first assigned in a contiguous way but as multiples of STRIDE, to leave
-/// room for modifications of the dominator tree.
-const STRIDE: u32 = 4;
 
 /// Dominator tree node. We keep one of these per block.
 #[derive(Clone, Default)]
 struct DomNode {
     /// Number of this node in a reverse post-order traversal of the CFG, starting from 1.
-    /// This number is monotonic in the reverse postorder but not contiguous, since we leave
-    /// holes for later localized modifications of the dominator tree.
     /// Unreachable nodes get number 0, all others are positive.
     rpo_number: u32,
 
@@ -270,11 +265,10 @@ impl SimpleDominatorTree {
         debug_assert_eq!(Some(entry_block), func.layout.entry_block());
 
         // Do a first pass where we assign RPO numbers to all reachable nodes.
-        self.nodes[entry_block].rpo_number = 2 * STRIDE;
+        self.nodes[entry_block].rpo_number = 2;
         for (rpo_idx, &block) in postorder.iter().rev().enumerate() {
             // Update the current node and give it an RPO number.
-            // The entry block got 2, the rest start at 3 by multiples of STRIDE to leave
-            // room for future dominator tree modifications.
+            // The entry block got 2, the rest start at 3.
             //
             // Since `compute_idom` will only look at nodes with an assigned RPO number, the
             // function will never see an uninitialized predecessor.
@@ -283,7 +277,7 @@ impl SimpleDominatorTree {
             // least one predecessor that has previously been visited during this RPO.
             self.nodes[block] = DomNode {
                 idom: self.compute_idom(block, cfg).into(),
-                rpo_number: (rpo_idx as u32 + 3) * STRIDE,
+                rpo_number: rpo_idx as u32 + 3,
             }
         }
 
