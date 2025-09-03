@@ -1346,6 +1346,16 @@
 
 ;;;; Rules for `bnot` ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+;; Special handling for scalar float bitwise operations - move to GPR, do op, move back
+(rule bnot_scalar_float 10 (lower (has_type (ty_scalar_float ty) (bnot x)))
+      (let ((size ScalarSize (scalar_size ty))
+            ;; Move float value to GPR
+            (x_gpr Reg (mov_from_vec x 0 size))
+            ;; Perform NOT on GPR (using ORR_NOT with zero)
+            (result_gpr Reg (alu_rrr (ALUOp.OrrNot) ty (zero_reg) x_gpr)))
+        ;; Move result back to FPU
+        (mov_to_fpu result_gpr size)))
+
 ;; Base case using `orn` between two registers.
 ;;
 ;; Note that bitwise negation is implemented here as
@@ -1381,6 +1391,17 @@
 
 ;;;; Rules for `band` ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+;; Special handling for scalar float bitwise operations - move to GPR, do op, move back
+(rule band_scalar_float 10 (lower (has_type (ty_scalar_float ty) (band x y)))
+      (let ((size ScalarSize (scalar_size ty))
+            ;; Move float values to GPRs
+            (x_gpr Reg (mov_from_vec x 0 size))
+            (y_gpr Reg (mov_from_vec y 0 size))
+            ;; Perform AND on GPRs
+            (result_gpr Reg (alu_rrr (ALUOp.And) ty x_gpr y_gpr)))
+        ;; Move result back to FPU
+        (mov_to_fpu result_gpr size)))
+
 (rule band_fits_in_64 -1 (lower (has_type (fits_in_64 ty) (band x y)))
       (alu_rs_imm_logic_commutative (ALUOp.And) ty x y))
 
@@ -1406,6 +1427,17 @@
       (bic_vec x y (vector_size ty)))
 
 ;;;; Rules for `bor` ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;; Special handling for scalar float bitwise operations - move to GPR, do op, move back
+(rule bor_scalar_float 10 (lower (has_type (ty_scalar_float ty) (bor x y)))
+      (let ((size ScalarSize (scalar_size ty))
+            ;; Move float values to GPRs
+            (x_gpr Reg (mov_from_vec x 0 size))
+            (y_gpr Reg (mov_from_vec y 0 size))
+            ;; Perform OR on GPRs  
+            (result_gpr Reg (alu_rrr (ALUOp.Orr) ty x_gpr y_gpr)))
+        ;; Move result back to FPU
+        (mov_to_fpu result_gpr size)))
 
 (rule bor_fits_in_64 -1 (lower (has_type (fits_in_64 ty) (bor x y)))
       (alu_rs_imm_logic_commutative (ALUOp.Orr) ty x y))
@@ -1447,6 +1479,17 @@
   (a64_extr ty x y (imm_shift_from_u8 ys)))
 
 ;;;; Rules for `bxor` ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;; Special handling for scalar float bitwise operations - move to GPR, do op, move back
+(rule bxor_scalar_float 10 (lower (has_type (ty_scalar_float ty) (bxor x y)))
+      (let ((size ScalarSize (scalar_size ty))
+            ;; Move float values to GPRs
+            (x_gpr Reg (mov_from_vec x 0 size))
+            (y_gpr Reg (mov_from_vec y 0 size))
+            ;; Perform XOR on GPRs
+            (result_gpr Reg (alu_rrr (ALUOp.Eor) ty x_gpr y_gpr)))
+        ;; Move result back to FPU
+        (mov_to_fpu result_gpr size)))
 
 (rule bxor_fits_in_64 -1 (lower (has_type (fits_in_64 ty) (bxor x y)))
       (alu_rs_imm_logic_commutative (ALUOp.Eor) ty x y))
