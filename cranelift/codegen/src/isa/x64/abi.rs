@@ -934,7 +934,24 @@ impl ABIMachineSpec for X64ABIMachineSpec {
         let clobber_size = compute_clobber_size(&regs);
 
         // Compute setup area size.
-        let setup_area_size = 16; // RBP, return address
+        let setup_area_size = match function_calls {
+            FunctionCalls::Regular => 16,
+            FunctionCalls::None => 0,
+            FunctionCalls::TailOnly => {
+                if can_optimize_tail_call_frame_x64(
+                    call_conv,
+                    flags,
+                    outgoing_args_size,
+                    clobber_size,
+                    fixed_frame_storage_size,
+                    stackslots_size,
+                ) {
+                    8
+                } else {
+                    16
+                }
+            }
+        };
 
         // Return FrameLayout structure.
         FrameLayout {
@@ -965,6 +982,41 @@ impl ABIMachineSpec for X64ABIMachineSpec {
             _ => &[],
         }
     }
+}
+
+/// Helper function to determine if x64 tail call frame optimization is safe.
+///
+/// This function implements comprehensive tail call frame optimization analysis
+/// for x64, considering all frame size components that could prevent optimization.
+/// Only enables optimization when the function truly needs minimal frame setup.
+fn can_optimize_tail_call_frame_x64(
+    call_conv: isa::CallConv,
+    flags: &settings::Flags,
+    outgoing_args_size: u32,
+    clobber_size: u32,
+    fixed_frame_storage_size: u32,
+    stackslots_size: u32,
+) -> bool {
+    // Conservative approach: Only SystemV on Unix-like systems
+    let calling_conv_compatible = match call_conv {
+        isa::CallConv::SystemV => {
+            // Require all safety conditions:
+            !flags.preserve_frame_pointers()     // No frame pointers required
+                && !flags.unwind_info()          // No unwind info required
+                && cfg!(unix) // Unix platforms only
+        }
+        isa::CallConv::Fast => false, // Fast calling convention disabled for now
+        isa::CallConv::WindowsFastcall => false, // Windows calling conventions disabled
+        _ => false,                   // All other calling conventions disabled
+    };
+
+    // Frame size requirements check - optimization only valid if no stack usage needed
+    let frame_size_compatible = outgoing_args_size == 0 // No outgoing arguments on stack
+        && clobber_size == 0                            // No callee-saved registers to spill
+        && fixed_frame_storage_size == 0                // No fixed storage requirements
+        && stackslots_size == 0; // No local stack slots
+
+    calling_conv_compatible && frame_size_compatible
 }
 
 impl From<StackAMode> for SyntheticAmode {

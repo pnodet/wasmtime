@@ -1,0 +1,277 @@
+test compile precise-output
+set preserve_frame_pointers=true
+target x86_64
+
+;;;; Comprehensive tail call frame optimization tests for x64 ;;;;;;;;;;;;;;;;
+;;;; NOTE: x64 currently requires preserve_frame_pointers=true for tail calls ;
+
+function %callee_simple(i64) -> i64 tail {
+block0(v0: i64):
+    v1 = iadd_imm.i64 v0, 42
+    return v1
+}
+
+; VCode:
+;   pushq %rbp
+;   movq %rsp, %rbp
+; block0:
+;   leaq 0x2a(%rdi), %rax
+;   movq %rbp, %rsp
+;   popq %rbp
+;   retq
+;
+; Disassembled:
+; block0: ; offset 0x0
+;   pushq %rbp
+;   movq %rsp, %rbp
+; block1: ; offset 0x4
+;   leaq 0x2a(%rdi), %rax
+;   movq %rbp, %rsp
+;   popq %rbp
+;   retq
+
+function %tail_only_optimized(i64) -> i64 tail {
+    fn0 = colocated %callee_simple(i64) -> i64 tail
+
+block0(v0: i64):
+    return_call fn0(v0)
+}
+
+; VCode:
+;   pushq %rbp
+;   movq %rsp, %rbp
+; block0:
+;   return_call_known TestCase(%callee_simple) (0) tmp=%r11 %rdi=%rdi
+;
+; Disassembled:
+; block0: ; offset 0x0
+;   pushq %rbp
+;   movq %rsp, %rbp
+; block1: ; offset 0x4
+;   movq %rbp, %rsp
+;   popq %rbp
+;   jmp 0xd ; reloc_external CallPCRel4 %callee_simple -4
+
+;;;; Test mixed calls use standard 16-byte frame ;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+function %helper(i64) -> i64 tail {
+block0(v0: i64):
+    v1 = iadd_imm.i64 v0, 1
+    return v1
+}
+
+; VCode:
+;   pushq %rbp
+;   movq %rsp, %rbp
+; block0:
+;   leaq 1(%rdi), %rax
+;   movq %rbp, %rsp
+;   popq %rbp
+;   retq
+;
+; Disassembled:
+; block0: ; offset 0x0
+;   pushq %rbp
+;   movq %rsp, %rbp
+; block1: ; offset 0x4
+;   leaq 1(%rdi), %rax
+;   movq %rbp, %rsp
+;   popq %rbp
+;   retq
+
+function %mixed_calls_standard_frame(i64) -> i64 tail {
+    fn0 = colocated %helper(i64) -> i64 tail
+    fn1 = colocated %callee_simple(i64) -> i64 tail
+
+block0(v0: i64):
+    v1 = call fn0(v0)  ; Regular call - should use standard frame
+    return_call fn1(v1)
+}
+
+; VCode:
+;   pushq %rbp
+;   movq %rsp, %rbp
+; block0:
+;   call    TestCase(%helper)
+;   movq %rax, %rdi
+;   return_call_known TestCase(%callee_simple) (0) tmp=%r11 %rdi=%rdi
+;
+; Disassembled:
+; block0: ; offset 0x0
+;   pushq %rbp
+;   movq %rsp, %rbp
+; block1: ; offset 0x4
+;   callq 9 ; reloc_external CallPCRel4 %helper -4
+;   movq %rax, %rdi
+;   movq %rbp, %rsp
+;   popq %rbp
+;   jmp 0x15 ; reloc_external CallPCRel4 %callee_simple -4
+
+;;;; Test leaf function (no frame optimization since no calls) ;;;;;;;;;;;;;;;
+
+function %leaf_function(i64) -> i64 tail {
+block0(v0: i64):
+    v1 = iadd_imm.i64 v0, 100
+    return v1
+}
+
+; VCode:
+;   pushq %rbp
+;   movq %rsp, %rbp
+; block0:
+;   leaq 0x64(%rdi), %rax
+;   movq %rbp, %rsp
+;   popq %rbp
+;   retq
+;
+; Disassembled:
+; block0: ; offset 0x0
+;   pushq %rbp
+;   movq %rsp, %rbp
+; block1: ; offset 0x4
+;   leaq 0x64(%rdi), %rax
+;   movq %rbp, %rsp
+;   popq %rbp
+;   retq
+
+;;;; Test tail calls with stack arguments (should prevent optimization) ;;;;;;
+
+function %many_args_callee(i64, i64, i64, i64, i64, i64, i64, i64, i64) -> i64 tail {
+block0(v0: i64, v1: i64, v2: i64, v3: i64, v4: i64, v5: i64, v6: i64, v7: i64, v8: i64):
+    return v8
+}
+
+; VCode:
+;   pushq %rbp
+;   movq %rsp, %rbp
+; block0:
+;   movq <offset:0>+-0x10(%rbp), %rax
+;   movq %rbp, %rsp
+;   popq %rbp
+;   retq $0x20
+;
+; Disassembled:
+; block0: ; offset 0x0
+;   pushq %rbp
+;   movq %rsp, %rbp
+; block1: ; offset 0x4
+;   movq 0x10(%rbp), %rax
+;   movq %rbp, %rsp
+;   popq %rbp
+;   retq $0x20
+
+function %tail_with_stack_args(i64) -> i64 tail {
+    fn0 = colocated %many_args_callee(i64, i64, i64, i64, i64, i64, i64, i64, i64) -> i64 tail
+
+block0(v0: i64):
+    v1 = iconst.i64 1
+    v2 = iconst.i64 2
+    v3 = iconst.i64 3
+    v4 = iconst.i64 4
+    v5 = iconst.i64 5
+    v6 = iconst.i64 6
+    v7 = iconst.i64 7
+    v8 = iconst.i64 8
+    return_call fn0(v0, v1, v2, v3, v4, v5, v6, v7, v8)  ; Should use standard frame due to stack args
+}
+
+; VCode:
+;   pushq %rbp
+;   movq %rsp, %rbp
+;   subq $0x20, %rsp
+;   movq %rsp, %rbp
+;   movq 0x20(%rsp), %r11
+;   movq %r11, (%rsp)
+;   movq 0x28(%rsp), %r11
+;   movq %r11, 8(%rsp)
+; block0:
+;   movl $0x1, %esi
+;   movl $0x2, %edx
+;   movl $0x3, %ecx
+;   movl $0x4, %r8d
+;   movl $0x5, %r9d
+;   movl $0x6, %eax
+;   movl $0x7, %r10d
+;   movl $0x8, %r11d
+;   movq %rax, <offset:0>+-0x20(%rbp)
+;   movq %r10, <offset:0>+-0x18(%rbp)
+;   movq %r11, <offset:0>+-0x10(%rbp)
+;   return_call_known TestCase(%many_args_callee) (32) tmp=%r11 %rdi=%rdi %rsi=%rsi %rdx=%rdx %rcx=%rcx %r8=%r8 %r9=%r9
+;
+; Disassembled:
+; block0: ; offset 0x0
+;   pushq %rbp
+;   movq %rsp, %rbp
+;   subq $0x20, %rsp
+;   movq %rsp, %rbp
+;   movq 0x20(%rsp), %r11
+;   movq %r11, (%rsp)
+;   movq 0x28(%rsp), %r11
+;   movq %r11, 8(%rsp)
+; block1: ; offset 0x1e
+;   movl $1, %esi
+;   movl $2, %edx
+;   movl $3, %ecx
+;   movl $4, %r8d
+;   movl $5, %r9d
+;   movl $6, %eax
+;   movl $7, %r10d
+;   movl $8, %r11d
+;   movq %rax, 0x10(%rbp)
+;   movq %r10, 0x18(%rbp)
+;   movq %r11, 0x20(%rbp)
+;   movq %rbp, %rsp
+;   popq %rbp
+;   jmp 0x5f ; reloc_external CallPCRel4 %many_args_callee -4
+
+;;;; Test recursive tail calls (should be optimized) ;;;;;;;;;;;;;;;;;;;;;;;;
+
+function %recursive_tail(i64) -> i64 tail {
+    fn0 = colocated %recursive_tail(i64) -> i64 tail
+
+block0(v0: i64):
+    v1 = icmp_imm eq v0, 0
+    brif v1, block1, block2
+
+block1:
+    v2 = iconst.i64 42
+    return v2
+
+block2:
+    v3 = iadd_imm.i64 v0, -1
+    return_call fn0(v3)  ; Tail recursive - should be optimized
+}
+
+; VCode:
+;   pushq %rbp
+;   movq %rsp, %rbp
+; block0:
+;   testq %rdi, %rdi
+;   jz      label2; j label1
+; block1:
+;   leaq -1(%rdi), %rdi
+;   return_call_known TestCase(%recursive_tail) (0) tmp=%r11 %rdi=%rdi
+; block2:
+;   movl $0x2a, %eax
+;   movq %rbp, %rsp
+;   popq %rbp
+;   retq
+;
+; Disassembled:
+; block0: ; offset 0x0
+;   pushq %rbp
+;   movq %rsp, %rbp
+; block1: ; offset 0x4
+;   testq %rdi, %rdi
+;   je 0x1d
+; block2: ; offset 0xd
+;   addq $-1, %rdi
+;   movq %rbp, %rsp
+;   popq %rbp
+;   jmp 0x1d ; reloc_external CallPCRel4 %recursive_tail -4
+; block3: ; offset 0x1d
+;   movl $0x2a, %eax
+;   movq %rbp, %rsp
+;   popq %rbp
+;   retq
+

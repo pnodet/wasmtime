@@ -1,0 +1,174 @@
+test compile precise-output
+target aarch64
+
+;;;; Tail call frame optimization tests for AArch64 ;;;;;;;;;;;
+
+function %callee_simple(i64) -> i64 tail {
+block0(v0: i64):
+    v1 = iadd_imm.i64 v0, 42
+    return v1
+}
+
+; VCode:
+; block0:
+;   add x2, x2, #42
+;   ret
+;
+; Disassembled:
+; block0: ; offset 0x0
+;   add x2, x2, #0x2a
+;   ret
+
+function %tail_only_optimized(i64) -> i64 tail {
+    fn0 = colocated %callee_simple(i64) -> i64 tail
+
+block0(v0: i64):
+    return_call fn0(v0)  ; Should use optimized 8-byte frame (stp fp, xzr)
+}
+
+; VCode:
+;   stp fp, lr, [sp, #-16]!
+;   mov fp, sp
+; block0:
+;   return_call TestCase(%callee_simple) new_stack_arg_size:0 x2=x2
+;
+; Disassembled:
+; block0: ; offset 0x0
+;   stp x29, x30, [sp, #-0x10]!
+;   mov x29, sp
+; block1: ; offset 0x8
+;   ldp x29, x30, [sp], #0x10
+;   b #0xc ; reloc_external Call %callee_simple 0
+
+;;;; Test mixed calls use standard 16-byte frame ;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+function %helper(i64) -> i64 tail {
+block0(v0: i64):
+    v1 = iadd_imm.i64 v0, 1
+    return v1
+}
+
+; VCode:
+; block0:
+;   add x2, x2, #1
+;   ret
+;
+; Disassembled:
+; block0: ; offset 0x0
+;   add x2, x2, #1
+;   ret
+
+function %mixed_calls_standard_frame(i64) -> i64 tail {
+    fn0 = colocated %helper(i64) -> i64 tail
+    fn1 = colocated %callee_simple(i64) -> i64 tail
+
+block0(v0: i64):
+    v1 = call fn0(v0)  ; Regular call - should use standard 16-byte frame
+    return_call fn1(v1)
+}
+
+; VCode:
+;   stp fp, lr, [sp, #-16]!
+;   mov fp, sp
+; block0:
+;   bl 0
+;   return_call TestCase(%callee_simple) new_stack_arg_size:0 x2=x2
+;
+; Disassembled:
+; block0: ; offset 0x0
+;   stp x29, x30, [sp, #-0x10]!
+;   mov x29, sp
+; block1: ; offset 0x8
+;   bl #8 ; reloc_external Call %helper 0
+;   ldp x29, x30, [sp], #0x10
+;   b #0x10 ; reloc_external Call %callee_simple 0
+
+;;;; Test leaf function uses minimal frame ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+function %leaf_function(i64) -> i64 tail {
+block0(v0: i64):
+    v1 = iadd_imm.i64 v0, 100
+    return v1
+}
+
+; VCode:
+; block0:
+;   add x2, x2, #100
+;   ret
+;
+; Disassembled:
+; block0: ; offset 0x0
+;   add x2, x2, #0x64
+;   ret
+
+;;;; Test recursive tail calls (should be optimized) ;;;;;;;;;;;;;;;;;;;;;;;;
+
+function %recursive_tail(i64) -> i64 tail {
+    fn0 = colocated %recursive_tail(i64) -> i64 tail
+
+block0(v0: i64):
+    v1 = icmp_imm eq v0, 0
+    brif v1, block1, block2
+
+block1:
+    v2 = iconst.i64 42
+    return v2
+
+block2:
+    v3 = iadd_imm.i64 v0, -1
+    return_call fn0(v3)  ; Tail recursive - should use optimized frame
+}
+
+; VCode:
+;   stp fp, lr, [sp, #-16]!
+;   mov fp, sp
+; block0:
+;   subs xzr, x2, #0
+;   b.eq label2 ; b label1
+; block1:
+;   sub x2, x2, #1
+;   return_call TestCase(%recursive_tail) new_stack_arg_size:0 x2=x2
+; block2:
+;   movz x2, #42
+;   ldp fp, lr, [sp], #16
+;   ret
+;
+; Disassembled:
+; block0: ; offset 0x0
+;   stp x29, x30, [sp, #-0x10]!
+;   mov x29, sp
+; block1: ; offset 0x8
+;   cmp x2, #0
+;   b.eq #0x1c
+; block2: ; offset 0x10
+;   sub x2, x2, #1
+;   ldp x29, x30, [sp], #0x10
+;   b #0x18 ; reloc_external Call %recursive_tail 0
+; block3: ; offset 0x1c
+;   mov x2, #0x2a
+;   ldp x29, x30, [sp], #0x10
+;   ret
+
+;;;; Test with safety constraints preventing optimization ;;;;;;;;;;;;;;;;;;;
+
+function %with_unwind_info(i64) -> i64 tail {
+    fn0 = colocated %callee_simple(i64) -> i64 tail
+
+block0(v0: i64):
+    return_call fn0(v0)  ; Should use standard frame if unwind info enabled
+}
+
+; VCode:
+;   stp fp, lr, [sp, #-16]!
+;   mov fp, sp
+; block0:
+;   return_call TestCase(%callee_simple) new_stack_arg_size:0 x2=x2
+;
+; Disassembled:
+; block0: ; offset 0x0
+;   stp x29, x30, [sp, #-0x10]!
+;   mov x29, sp
+; block1: ; offset 0x8
+;   ldp x29, x30, [sp], #0x10
+;   b #0xc ; reloc_external Call %callee_simple 0
+

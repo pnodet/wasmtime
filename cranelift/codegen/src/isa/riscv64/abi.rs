@@ -336,23 +336,34 @@ impl ABIMachineSpec for Riscv64MachineDeps {
         let mut insts = SmallVec::new();
 
         if frame_layout.setup_area_size > 0 {
-            // add  sp,sp,-16    ;; alloc stack space for fp.
-            // sd   ra,8(sp)     ;; save ra.
-            // sd   fp,0(sp)     ;; store old fp.
-            // mv   fp,sp        ;; set fp to sp.
-            insts.extend(Self::gen_sp_reg_adjust(-16));
-            insts.push(Inst::gen_store(
-                AMode::SPOffset(8),
-                link_reg(),
-                I64,
-                MemFlags::trusted(),
-            ));
-            insts.push(Inst::gen_store(
-                AMode::SPOffset(0),
-                fp_reg(),
-                I64,
-                MemFlags::trusted(),
-            ));
+            let frame_size = -(frame_layout.setup_area_size as i32);
+
+            insts.extend(Self::gen_sp_reg_adjust(frame_size));
+
+            if frame_layout.setup_area_size == 8 {
+                // sd   fp,0(sp)     ;; store old fp.
+                insts.push(Inst::gen_store(
+                    AMode::SPOffset(0),
+                    fp_reg(),
+                    I64,
+                    MemFlags::trusted(),
+                ));
+            } else {
+                // sd   ra,8(sp)     ;; save ra.
+                // sd   fp,0(sp)     ;; store old fp.
+                insts.push(Inst::gen_store(
+                    AMode::SPOffset(8),
+                    link_reg(),
+                    I64,
+                    MemFlags::trusted(),
+                ));
+                insts.push(Inst::gen_store(
+                    AMode::SPOffset(0),
+                    fp_reg(),
+                    I64,
+                    MemFlags::trusted(),
+                ));
+            }
 
             if flags.unwind_info() {
                 insts.push(Inst::Unwind {
@@ -380,19 +391,33 @@ impl ABIMachineSpec for Riscv64MachineDeps {
         let mut insts = SmallVec::new();
 
         if frame_layout.setup_area_size > 0 {
-            insts.push(Inst::gen_load(
-                writable_link_reg(),
-                AMode::SPOffset(8),
-                I64,
-                MemFlags::trusted(),
-            ));
-            insts.push(Inst::gen_load(
-                writable_fp_reg(),
-                AMode::SPOffset(0),
-                I64,
-                MemFlags::trusted(),
-            ));
-            insts.extend(Self::gen_sp_reg_adjust(16));
+            if frame_layout.setup_area_size == 8 {
+                // ld   fp,0(sp)     ;; restore old fp.
+                insts.push(Inst::gen_load(
+                    writable_fp_reg(),
+                    AMode::SPOffset(0),
+                    I64,
+                    MemFlags::trusted(),
+                ));
+            } else {
+                // ld   ra,8(sp)     ;; restore ra.
+                // ld   fp,0(sp)     ;; restore old fp.
+                insts.push(Inst::gen_load(
+                    writable_link_reg(),
+                    AMode::SPOffset(8),
+                    I64,
+                    MemFlags::trusted(),
+                ));
+                insts.push(Inst::gen_load(
+                    writable_fp_reg(),
+                    AMode::SPOffset(0),
+                    I64,
+                    MemFlags::trusted(),
+                ));
+            }
+
+            // Restore stack pointer
+            insts.extend(Self::gen_sp_reg_adjust(frame_layout.setup_area_size as i32));
         }
 
         if call_conv == isa::CallConv::Tail && frame_layout.tail_args_size > 0 {
@@ -624,7 +649,7 @@ impl ABIMachineSpec for Riscv64MachineDeps {
     }
 
     fn compute_frame_layout(
-        _call_conv: isa::CallConv,
+        call_conv: isa::CallConv,
         flags: &settings::Flags,
         _sig: &Signature,
         regs: &[Writable<RealReg>],
@@ -646,18 +671,28 @@ impl ABIMachineSpec for Riscv64MachineDeps {
         // Compute clobber size.
         let clobber_size = compute_clobber_size(&regs);
 
-        // Compute linkage frame size.
+        // Compute linkage frame size with tail-call-only optimization.
         let setup_area_size = if flags.preserve_frame_pointers()
-            || function_calls != FunctionCalls::None
             // The function arguments that are passed on the stack are addressed
             // relative to the Frame Pointer.
+            || flags.unwind_info() // Unwinding info requires full frames
             || incoming_args_size > 0
             || clobber_size > 0
             || fixed_frame_storage_size > 0
         {
             16 // FP, LR
         } else {
-            0
+            match function_calls {
+                FunctionCalls::Regular => 16,
+                FunctionCalls::None => 0,
+                FunctionCalls::TailOnly => {
+                    if can_optimize_tail_call_frame_riscv64(call_conv) {
+                        8
+                    } else {
+                        16
+                    }
+                }
+            }
         };
 
         // Return FrameLayout structure.
@@ -764,6 +799,18 @@ fn compute_clobber_size(clobbers: &[Writable<RealReg>]) -> u32 {
         }
     }
     align_to(clobbered_size, 16)
+}
+
+/// Determines if tail-call-only functions can use optimized frame layout on RISC-V64.
+///
+/// This function analyzes calling convention compatibility for frame optimization.
+/// Other safety checks (frame pointers, unwinding, stack usage) are handled in compute_frame_layout.
+fn can_optimize_tail_call_frame_riscv64(call_conv: isa::CallConv) -> bool {
+    match call_conv {
+        isa::CallConv::SystemV => true,
+        isa::CallConv::Fast => true,
+        _ => false,
+    }
 }
 
 const DEFAULT_CLOBBERS: PRegSet = PRegSet::empty()

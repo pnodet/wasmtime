@@ -969,6 +969,10 @@ impl ABIMachineSpec for S390xMachineDeps {
             // We already accounted for tail-call arguments above, so reset
             // this value to its default.
             tail_args_size: incoming_args_size,
+            // TODO: s390x tail-call optimization could be implemented here, but requires
+            // careful consideration of the unique s390x stack layout with its 160-byte
+            // register save area and backchain mechanism. The current setup_area_size
+            // of 0 reflects s390x's different approach to frame management.
             setup_area_size: 0,
             clobber_size,
             fixed_frame_storage_size,

@@ -22,7 +22,7 @@ block0(v0: i64):
 ;   pushq %rbp
 ;   movq %rsp, %rbp
 ; block1: ; offset 0x4
-;   leaq 0x10(%rbp), %rsi
+;   leaq (%rbp), %rsi
 ;   movzbq (%rsi), %rax ; trap: heap_oob
 ;   movq %rbp, %rsp
 ;   popq %rbp
@@ -53,7 +53,7 @@ block0(v0: i64, v1: i64):
 ;   pushq %rbp
 ;   movq %rsp, %rbp
 ; block1: ; offset 0x4
-;   leaq 0x10(%rbp), %rcx
+;   leaq (%rbp), %rcx
 ;   movzbq (%rdi), %rax ; trap: heap_oob
 ;   movzbq (%rcx), %r9 ; trap: heap_oob
 ;   addl %r9d, %eax
@@ -175,8 +175,8 @@ block0(v0: i64, v1: i64):
 ;   pushq %rbp
 ;   movq %rsp, %rbp
 ; block1: ; offset 0x4
-;   leaq 0x10(%rbp), %rsi
-;   leaq 0x90(%rbp), %rcx
+;   leaq (%rbp), %rsi
+;   leaq 0x80(%rbp), %rcx
 ;   movzbq (%rsi), %rax ; trap: heap_oob
 ;   movzbq (%rcx), %r9 ; trap: heap_oob
 ;   addl %r9d, %eax

@@ -491,7 +491,7 @@ where
     }
 
     fn compute_frame_layout(
-        _call_conv: isa::CallConv,
+        call_conv: isa::CallConv,
         flags: &settings::Flags,
         _sig: &Signature,
         regs: &[Writable<RealReg>],
@@ -513,18 +513,28 @@ where
         // Compute clobber size.
         let clobber_size = compute_clobber_size(&regs);
 
-        // Compute linkage frame size.
+        // Compute linkage frame size with tail-call-only optimization.
         let setup_area_size = if flags.preserve_frame_pointers()
-            || function_calls != FunctionCalls::None
             // The function arguments that are passed on the stack are addressed
             // relative to the Frame Pointer.
+            || flags.unwind_info()
             || incoming_args_size > 0
             || clobber_size > 0
             || fixed_frame_storage_size > 0
         {
             P::pointer_width().bytes() * 2 // FP, LR
         } else {
-            0
+            match function_calls {
+                FunctionCalls::Regular => P::pointer_width().bytes() * 2, // FP, LR
+                FunctionCalls::None => 0,
+                FunctionCalls::TailOnly => {
+                    if can_optimize_tail_call_frame_pulley::<P>(call_conv) {
+                        P::pointer_width().bytes()
+                    } else {
+                        P::pointer_width().bytes() * 2
+                    }
+                }
+            }
         };
 
         FrameLayout {
@@ -763,6 +773,18 @@ fn compute_clobber_size(clobbers: &[Writable<RealReg>]) -> u32 {
         }
     }
     align_to(clobbered_size, 16)
+}
+
+/// Determines if tail-call-only functions can use optimized frame layout on Pulley.
+///
+/// This function analyzes calling convention compatibility for frame optimization.
+/// Other safety checks (frame pointers, unwinding, stack usage) are handled in compute_frame_layout.
+fn can_optimize_tail_call_frame_pulley<P: PulleyTargetKind>(call_conv: isa::CallConv) -> bool {
+    match call_conv {
+        isa::CallConv::SystemV => true,
+        isa::CallConv::Fast => true,
+        _ => false,
+    }
 }
 
 const DEFAULT_CLOBBERS: PRegSet = PRegSet::empty()

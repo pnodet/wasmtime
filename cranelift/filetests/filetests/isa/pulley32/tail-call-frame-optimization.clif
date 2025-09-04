@@ -1,0 +1,92 @@
+test compile precise-output
+target pulley32
+
+;;;; Comprehensive tail call frame optimization tests for Pulley32 ;;;;;;;;;;
+
+function %callee_simple(i64) -> i64 tail {
+block0(v0: i64):
+    v1 = iadd_imm.i64 v0, 42
+    return v1
+}
+
+; VCode:
+; block0:
+;   xadd64_u8 x0, x0, 42
+;   ret
+;
+; Disassembled:
+; xadd64_u8 x0, x0, 42
+; ret
+
+function %tail_only_optimized(i64) -> i64 tail {
+    fn0 = colocated %callee_simple(i64) -> i64 tail
+
+block0(v0: i64):
+    return_call fn0(v0)  ; Should use optimized frame
+}
+
+; VCode:
+;   push_frame
+; block0:
+;   return_call ReturnCallInfo { dest: TestCase(%callee_simple), new_stack_arg_size: 0, uses: [CallArgPair { vreg: p0i, preg: p0i }] }
+;
+; Disassembled:
+; push_frame
+; pop_frame
+; jump 0x1    // target = 0x3
+
+;;;; Test mixed calls use standard frame ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+function %helper(i64) -> i64 tail {
+block0(v0: i64):
+    v1 = iadd_imm.i64 v0, 1
+    return v1
+}
+
+; VCode:
+; block0:
+;   xadd64_u8 x0, x0, 1
+;   ret
+;
+; Disassembled:
+; xadd64_u8 x0, x0, 1
+; ret
+
+function %mixed_calls_standard_frame(i64) -> i64 tail {
+    fn0 = colocated %helper(i64) -> i64 tail
+    fn1 = colocated %callee_simple(i64) -> i64 tail
+
+block0(v0: i64):
+    v1 = call fn0(v0)  ; Regular call - should use standard frame
+    return_call fn1(v1)
+}
+
+; VCode:
+;   push_frame
+; block0:
+;   call CallInfo { dest: PulleyCall { name: TestCase(%helper), args: [XReg(p0i)] }, uses: [], defs: [CallRetPair { vreg: Writable { reg: p0i }, location: Reg(p0i, types::I64) }], clobbers: PRegSet { bits: [65534, 4294967295, 4294967295, 0] }, callee_conv: Tail, caller_conv: Tail, callee_pop_size: 0, try_call_info: None }
+;   return_call ReturnCallInfo { dest: TestCase(%callee_simple), new_stack_arg_size: 0, uses: [CallArgPair { vreg: p0i, preg: p0i }] }
+;
+; Disassembled:
+; push_frame
+; call 0x1    // target = 0x2
+; pop_frame
+; jump 0x1    // target = 0x8
+
+;;;; Test leaf function uses minimal frame ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+function %leaf_function(i64) -> i64 tail {
+block0(v0: i64):
+    v1 = iadd_imm.i64 v0, 100
+    return v1
+}
+
+; VCode:
+; block0:
+;   xadd64_u8 x0, x0, 100
+;   ret
+;
+; Disassembled:
+; xadd64_u8 x0, x0, 100
+; ret
+

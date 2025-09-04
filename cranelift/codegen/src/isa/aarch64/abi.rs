@@ -596,15 +596,29 @@ impl ABIMachineSpec for AArch64MachineDeps {
         }
 
         if setup_frame {
-            // stp fp (x29), lr (x30), [sp, #-16]!
-            insts.push(Inst::StoreP64 {
-                rt: fp_reg(),
-                rt2: link_reg(),
-                mem: PairAMode::SPPreIndexed {
-                    simm7: SImm7Scaled::maybe_from_i64(-16, types::I64).unwrap(),
-                },
-                flags: MemFlags::trusted(),
-            });
+            let frame_offset = -(frame_layout.setup_area_size as i64);
+
+            if frame_layout.setup_area_size == 8 {
+                // stp fp (x29), xzr, [sp, #-8]!
+                insts.push(Inst::StoreP64 {
+                    rt: fp_reg(),
+                    rt2: regs::zero_reg(), // Use zero register instead of LR
+                    mem: PairAMode::SPPreIndexed {
+                        simm7: SImm7Scaled::maybe_from_i64(frame_offset, types::I64).unwrap(),
+                    },
+                    flags: MemFlags::trusted(),
+                });
+            } else {
+                // stp fp (x29), lr (x30), [sp, #-16]!
+                insts.push(Inst::StoreP64 {
+                    rt: fp_reg(),
+                    rt2: link_reg(),
+                    mem: PairAMode::SPPreIndexed {
+                        simm7: SImm7Scaled::maybe_from_i64(frame_offset, types::I64).unwrap(),
+                    },
+                    flags: MemFlags::trusted(),
+                });
+            }
 
             if flags.unwind_info() {
                 insts.push(Inst::Unwind {
@@ -645,15 +659,29 @@ impl ABIMachineSpec for AArch64MachineDeps {
             // clobber-restore code (which also frees the fixed frame). Hence, there
             // is no need for the usual `mov sp, fp` here.
 
-            // `ldp fp, lr, [sp], #16`
-            insts.push(Inst::LoadP64 {
-                rt: writable_fp_reg(),
-                rt2: writable_link_reg(),
-                mem: PairAMode::SPPostIndexed {
-                    simm7: SImm7Scaled::maybe_from_i64(16, types::I64).unwrap(),
-                },
-                flags: MemFlags::trusted(),
-            });
+            let frame_offset = frame_layout.setup_area_size as i64;
+
+            if frame_layout.setup_area_size == 8 {
+                // `ldp fp, xzr, [sp], #8`
+                insts.push(Inst::LoadP64 {
+                    rt: writable_fp_reg(),
+                    rt2: Writable::from_reg(regs::zero_reg()), // Ignore second value
+                    mem: PairAMode::SPPostIndexed {
+                        simm7: SImm7Scaled::maybe_from_i64(frame_offset, types::I64).unwrap(),
+                    },
+                    flags: MemFlags::trusted(),
+                });
+            } else {
+                // `ldp fp, lr, [sp], #16`
+                insts.push(Inst::LoadP64 {
+                    rt: writable_fp_reg(),
+                    rt2: writable_link_reg(),
+                    mem: PairAMode::SPPostIndexed {
+                        simm7: SImm7Scaled::maybe_from_i64(frame_offset, types::I64).unwrap(),
+                    },
+                    flags: MemFlags::trusted(),
+                });
+            }
         }
 
         if call_conv == isa::CallConv::Tail && frame_layout.tail_args_size > 0 {
@@ -1144,16 +1172,26 @@ impl ABIMachineSpec for AArch64MachineDeps {
 
         // Compute linkage frame size.
         let setup_area_size = if flags.preserve_frame_pointers()
-            || function_calls != FunctionCalls::None
             // The function arguments that are passed on the stack are addressed
             // relative to the Frame Pointer.
+            || flags.unwind_info()
             || incoming_args_size > 0
             || clobber_size > 0
             || fixed_frame_storage_size > 0
         {
             16 // FP, LR
         } else {
-            0
+            match function_calls {
+                FunctionCalls::Regular => 16,
+                FunctionCalls::None => 0,
+                FunctionCalls::TailOnly => {
+                    if can_optimize_tail_call_frame(call_conv) {
+                        8
+                    } else {
+                        16
+                    }
+                }
+            }
         };
 
         // Return FrameLayout structure.
@@ -1301,6 +1339,18 @@ fn is_reg_saved_in_prologue(
             }
         }
         RegClass::Vector => unreachable!(),
+    }
+}
+
+/// Determines if tail-call-only functions can use optimized frame layout.
+///
+/// This function analyzes calling convention compatibility for frame optimization.
+/// Other safety checks (frame pointers, unwinding, stack usage) are handled in compute_frame_layout.
+fn can_optimize_tail_call_frame(call_conv: isa::CallConv) -> bool {
+    match call_conv {
+        isa::CallConv::SystemV => true,
+        isa::CallConv::Fast => true,
+        _ => false,
     }
 }
 

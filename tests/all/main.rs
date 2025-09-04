@@ -47,6 +47,7 @@ mod structs;
 mod table;
 #[cfg(all(feature = "stack-switching", unix, target_arch = "x86_64"))]
 mod tags;
+mod tail_call_optimization;
 mod threads;
 mod traps;
 mod types;

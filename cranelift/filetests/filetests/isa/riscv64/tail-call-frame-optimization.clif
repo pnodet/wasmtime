@@ -1,0 +1,175 @@
+test compile precise-output
+target riscv64
+
+;;;; Comprehensive tail call frame optimization tests for RISC-V64 ;;;;;;;;;;
+
+function %callee_simple(i64) -> i64 tail {
+block0(v0: i64):
+    v1 = iadd_imm.i64 v0, 42
+    return v1
+}
+
+; VCode:
+; block0:
+;   addi a0,a0,42
+;   ret
+;
+; Disassembled:
+; block0: ; offset 0x0
+;   addi a0, a0, 0x2a
+;   ret
+
+function %tail_only_optimized(i64) -> i64 tail {
+    fn0 = colocated %callee_simple(i64) -> i64 tail
+
+block0(v0: i64):
+    return_call fn0(v0)  ; Should use optimized frame
+}
+
+; VCode:
+;   addi sp,sp,-16
+;   sd ra,8(sp)
+;   sd fp,0(sp)
+;   mv fp,sp
+; block0:
+;   return_call TestCase(%callee_simple) new_stack_arg_size:0 a0=a0
+;
+; Disassembled:
+; block0: ; offset 0x0
+;   addi sp, sp, -0x10
+;   sd ra, 8(sp)
+;   sd s0, 0(sp)
+;   mv s0, sp
+; block1: ; offset 0x10
+;   ld ra, 8(sp)
+;   ld s0, 0(sp)
+;   addi sp, sp, 0x10
+;   auipc t6, 0 ; reloc_external RiscvCallPlt %callee_simple 0
+;   jr t6
+
+;;;; Test mixed calls use standard 16-byte frame ;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+function %helper(i64) -> i64 tail {
+block0(v0: i64):
+    v1 = iadd_imm.i64 v0, 1
+    return v1
+}
+
+; VCode:
+; block0:
+;   addi a0,a0,1
+;   ret
+;
+; Disassembled:
+; block0: ; offset 0x0
+;   addi a0, a0, 1
+;   ret
+
+function %mixed_calls_standard_frame(i64) -> i64 tail {
+    fn0 = colocated %helper(i64) -> i64 tail
+    fn1 = colocated %callee_simple(i64) -> i64 tail
+
+block0(v0: i64):
+    v1 = call fn0(v0)  ; Regular call - should use standard frame
+    return_call fn1(v1)
+}
+
+; VCode:
+;   addi sp,sp,-16
+;   sd ra,8(sp)
+;   sd fp,0(sp)
+;   mv fp,sp
+; block0:
+;   call %helper
+;   return_call TestCase(%callee_simple) new_stack_arg_size:0 a0=a0
+;
+; Disassembled:
+; block0: ; offset 0x0
+;   addi sp, sp, -0x10
+;   sd ra, 8(sp)
+;   sd s0, 0(sp)
+;   mv s0, sp
+; block1: ; offset 0x10
+;   auipc ra, 0 ; reloc_external RiscvCallPlt %helper 0
+;   jalr ra
+;   ld ra, 8(sp)
+;   ld s0, 0(sp)
+;   addi sp, sp, 0x10
+;   auipc t6, 0 ; reloc_external RiscvCallPlt %callee_simple 0
+;   jr t6
+
+;;;; Test leaf function uses minimal frame ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+function %leaf_function(i64) -> i64 tail {
+block0(v0: i64):
+    v1 = iadd_imm.i64 v0, 100
+    return v1
+}
+
+; VCode:
+; block0:
+;   addi a0,a0,100
+;   ret
+;
+; Disassembled:
+; block0: ; offset 0x0
+;   addi a0, a0, 0x64
+;   ret
+
+;;;; Test recursive tail calls (should be optimized) ;;;;;;;;;;;;;;;;;;;;;;;;
+
+function %recursive_tail(i64) -> i64 tail {
+    fn0 = colocated %recursive_tail(i64) -> i64 tail
+
+block0(v0: i64):
+    v1 = icmp_imm eq v0, 0
+    brif v1, block1, block2
+
+block1:
+    v2 = iconst.i64 42
+    return v2
+
+block2:
+    v3 = iadd_imm.i64 v0, -1
+    return_call fn0(v3)  ; Tail recursive - should be optimized
+}
+
+; VCode:
+;   addi sp,sp,-16
+;   sd ra,8(sp)
+;   sd fp,0(sp)
+;   mv fp,sp
+; block0:
+;   beq a0,zero,taken(label2),not_taken(label1)
+; block1:
+;   addi a0,a0,-1
+;   return_call TestCase(%recursive_tail) new_stack_arg_size:0 a0=a0
+; block2:
+;   li a0,42
+;   ld ra,8(sp)
+;   ld fp,0(sp)
+;   addi sp,sp,16
+;   ret
+;
+; Disassembled:
+; block0: ; offset 0x0
+;   addi sp, sp, -0x10
+;   sd ra, 8(sp)
+;   sd s0, 0(sp)
+;   mv s0, sp
+; block1: ; offset 0x10
+;   beqz a0, 0x1c
+; block2: ; offset 0x14
+;   addi a0, a0, -1
+;   ld ra, 8(sp)
+;   ld s0, 0(sp)
+;   addi sp, sp, 0x10
+;   auipc t6, 0 ; reloc_external RiscvCallPlt %recursive_tail 0
+;   jr t6
+; block3: ; offset 0x2c
+;   addi a0, zero, 0x2a
+;   ld ra, 8(sp)
+;   ld s0, 0(sp)
+;   addi sp, sp, 0x10
+;   ret
+

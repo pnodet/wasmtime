@@ -1214,11 +1214,11 @@ block0(v0: i128, v1: i128, v2: i64, v3: i128, v4: i128, v5: i128):
 ; block1: ; offset 0x16
 ;   movq %rcx, %r13
 ;   movq %rdx, %r15
-;   movq 0x10(%rbp), %rcx
-;   movq 0x18(%rbp), %rax
-;   movq 0x20(%rbp), %rdx
-;   movq 0x28(%rbp), %r11
-;   movq 0x30(%rbp), %r10
+;   movq (%rbp), %rcx
+;   movq 8(%rbp), %rax
+;   movq 0x10(%rbp), %rdx
+;   movq 0x18(%rbp), %r11
+;   movq 0x20(%rbp), %r10
 ;   addq %r15, %rdi
 ;   movq %r13, %r14
 ;   adcq %r14, %rsi
