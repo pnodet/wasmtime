@@ -3662,6 +3662,13 @@ fn emit_return_call_common_sequence<T>(
     }
 
     let setup_area_size = state.frame_layout().setup_area_size;
+    let incoming_args_diff = state.frame_layout().tail_args_size - info.new_stack_arg_size;
+    let combined_setup_and_args_diff = if setup_area_size > 0 && incoming_args_diff > 0 {
+        SImm7Scaled::maybe_from_i64(i64::from(setup_area_size + incoming_args_diff), types::I64)
+    } else {
+        None
+    };
+
     if setup_area_size > 0 {
         // N.B.: sp is already adjusted to the appropriate place by the
         // clobber-restore code (which also frees the fixed frame). Hence, there
@@ -3672,10 +3679,9 @@ fn emit_return_call_common_sequence<T>(
             rt: writable_fp_reg(),
             rt2: writable_link_reg(),
             mem: PairAMode::SPPostIndexed {
-                // TODO: we could fold the increment for incoming_args_diff here, as long as that
-                // value is less than 502*8, by adding it to `setup_area_size`.
-                // https://developer.arm.com/documentation/ddi0596/2020-12/Base-Instructions/LDP--Load-Pair-of-Registers-
-                simm7: SImm7Scaled::maybe_from_i64(i64::from(setup_area_size), types::I64).unwrap(),
+                simm7: combined_setup_and_args_diff.unwrap_or_else(|| {
+                    SImm7Scaled::maybe_from_i64(i64::from(setup_area_size), types::I64).unwrap()
+                }),
             },
             flags: MemFlags::trusted(),
         }
@@ -3683,8 +3689,7 @@ fn emit_return_call_common_sequence<T>(
     }
 
     // Adjust SP to account for the possible over-allocation in the prologue.
-    let incoming_args_diff = state.frame_layout().tail_args_size - info.new_stack_arg_size;
-    if incoming_args_diff > 0 {
+    if incoming_args_diff > 0 && combined_setup_and_args_diff.is_none() {
         for inst in
             AArch64MachineDeps::gen_sp_reg_adjust(i32::try_from(incoming_args_diff).unwrap())
         {
